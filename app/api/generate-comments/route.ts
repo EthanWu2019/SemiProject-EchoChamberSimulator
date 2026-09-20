@@ -415,7 +415,7 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
       if (Array.isArray(parsed)) {
         // Detect the char-keyed object inside the array wrapper
         const charIndex = parsed.findIndex(looksLikeCharObject);
-        console.log("[EchoChamber] charIndex:", charIndex, "first elem keys:", parsed[0] ? Object.keys(parsed[0]).slice(0, 5) : "n/a");
+        console.log("[EchoChamber] charIndex:", charIndex, "first elem keys:", parsed[0] ? Object.keys(parsed[0]).slice(0, 5) : "n/a", "first elem total keys:", parsed[0] ? Object.keys(parsed[0]).length : "n/a");
         if (charIndex >= 0) {
           // Convert char-object entries; keep non-char entries as-is
           comments = parsed.map((c: unknown, i: number) =>
