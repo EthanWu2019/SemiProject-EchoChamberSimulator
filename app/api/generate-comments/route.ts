@@ -418,6 +418,9 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
         let _debugDetected = -1;
         for (let _i = 0; _i < parsed.length; _i++) {
           const o = parsed[_i];
+          if (_i === 0) {
+            console.log("[EchoChamber] elem[0] type:", Array.isArray(o) ? "array" : typeof o, "value:", typeof o === "object" && o !== null ? Object.keys(o).slice(0, 3) : String(o).slice(0, 50));
+          }
           if (o && typeof o === "object" && !Array.isArray(o)) {
             const keys = Object.keys(o);
             const numericKeys = keys.filter((k) => /^\d+$/.test(k));
