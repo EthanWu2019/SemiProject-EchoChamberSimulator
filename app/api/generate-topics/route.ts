@@ -139,7 +139,18 @@ export async function POST(request: NextRequest) {
           .join("");
 
       if (Array.isArray(parsed)) {
-        result = parsed;
+        const charIndex = parsed.findIndex(looksLikeCharObject);
+        if (charIndex >= 0) {
+          result = parsed.map((c: unknown, i: number) =>
+            i === charIndex || looksLikeCharObject(c)
+              ? action === "generate_posts"
+                ? { username: "User", content: charObjectToText(c as Record<string, string>), likes: 0, reposts: 0, views: 0 }
+                : { tag: charObjectToText(c as Record<string, string>), count: "0", hot: false }
+              : c
+          );
+        } else {
+          result = parsed;
+        }
       } else if (looksLikeCharObject(parsed)) {
         const text = charObjectToText(parsed as Record<string, string>);
         result = action === "generate_posts"

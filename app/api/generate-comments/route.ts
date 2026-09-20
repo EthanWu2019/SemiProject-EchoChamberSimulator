@@ -412,7 +412,24 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
           .join("");
 
       if (Array.isArray(parsed)) {
-        comments = parsed;
+        // Detect the char-keyed object inside the array wrapper
+        const charIndex = parsed.findIndex(looksLikeCharObject);
+        if (charIndex >= 0) {
+          // Convert char-object entries; keep non-char entries as-is
+          comments = parsed.map((c: unknown, i: number) =>
+            i === charIndex || looksLikeCharObject(c)
+              ? {
+                  username: "User",
+                  personality: "normal",
+                  content: charObjectToText(c as Record<string, string>),
+                  sentiment_impact: 0,
+                  delay: 0,
+                }
+              : c
+          );
+        } else {
+          comments = parsed;
+        }
       } else if (looksLikeCharObject(parsed)) {
         // Whole response is a char-object — emit one comment from its text.
         const text = charObjectToText(parsed as Record<string, string>);
