@@ -391,8 +391,26 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
         candidate = raw.slice(objStart);
       }
       const parsed = JSON.parse(candidate);
-      // Normalize: accept array, {comments|data:<arr>}, {<arr>}, or stringified JSON
-      if (Array.isArray(parsed)) {
+      // Normalize: accept array, {comments|data:<arr>}, {<arr>}, or stringified JSON.
+      // Detect minimax quirk where it returns a string-as-character-object
+      // (e.g. {"0":"l","1":"m",...}) — fall back to a regex-extracted comment.
+      const isCharObject =
+        parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
+        Object.keys(parsed).length > 1 &&
+        Object.keys(parsed).every((k) => /^\d+$/.test(k));
+      if (isCharObject) {
+        const text = Object.keys(parsed)
+          .sort((a, b) => Number(a) - Number(b))
+          .map((k) => parsed[k])
+          .join("");
+        comments = [{
+          username: "User",
+          personality: "normal",
+          content: text,
+          sentiment_impact: 0,
+          delay: 0,
+        }];
+      } else if (Array.isArray(parsed)) {
         comments = parsed;
       } else if (typeof parsed === "string") {
         try {
@@ -406,8 +424,14 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
       } else if (Array.isArray(parsed.data)) {
         comments = parsed.data;
       } else {
-        const arr = Object.values(parsed).find(Array.isArray);
-        comments = arr || [];
+        // last resort: regex-extract a comment block from raw text
+        const m = raw.match(/\{\s*"content"\s*:\s*"([^"]+)"/);
+        if (m) {
+          comments = [{ username: "User", personality: "normal", content: m[1], sentiment_impact: 0, delay: 0 }];
+        } else {
+          const arr = Object.values(parsed).find(Array.isArray);
+          comments = arr || [];
+        }
       }
     } catch {
       console.error("[EchoChamber] Failed to parse AI response:", content);

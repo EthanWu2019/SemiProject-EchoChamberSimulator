@@ -126,6 +126,13 @@ export async function POST(request: NextRequest) {
       const parsed = JSON.parse(candidate);
       if (Array.isArray(parsed)) {
         result = parsed;
+      } else if (typeof parsed === "string") {
+        try {
+          const inner = JSON.parse(parsed);
+          result = Array.isArray(inner) ? inner : [inner];
+        } catch {
+          result = [{ tag: parsed, count: "0", hot: false }];
+        }
       } else if (Array.isArray(parsed.data)) {
         result = parsed.data;
       } else if (Array.isArray(parsed.topics)) {
@@ -133,8 +140,19 @@ export async function POST(request: NextRequest) {
       } else if (Array.isArray(parsed.posts)) {
         result = parsed.posts;
       } else {
-        const arr = Object.values(parsed).find(Array.isArray);
-        result = arr || [];
+        // Detect minimax quirk: character-keyed object ({0:"a",1:"b"...})
+        const isCharObj = parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
+          Object.keys(parsed).length > 1 &&
+          Object.keys(parsed).every((k) => /^\d+$/.test(k));
+        if (isCharObj) {
+          const text = Object.keys(parsed).sort((a, b) => Number(a) - Number(b)).map((k) => parsed[k]).join("");
+          result = action === "generate_posts"
+            ? [{ username: "User", content: text, likes: 0, reposts: 0, views: 0 }]
+            : [{ tag: text, count: "0", hot: false }];
+        } else {
+          const arr = Object.values(parsed).find(Array.isArray);
+          result = arr || [];
+        }
       }
     } catch {
       // Fallback
