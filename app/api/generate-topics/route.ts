@@ -94,12 +94,11 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         model: process.env.MINIMAX_MODEL || "MiniMax-M2.5-highspeed",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: systemPrompt + "\n\nIMPORTANT: Output ONLY a valid JSON array. No prose, no markdown fences, no <think> blocks." },
           { role: "user", content: userPrompt },
         ],
         temperature: 1.0,
         max_tokens: 2000,
-        response_format: { type: "json_object" },
       }),
     });
 
@@ -110,17 +109,21 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    const content = data.choices[0]?.message?.content || "{}";
+    const content = data.choices[0]?.message?.content || "[]";
 
     let result;
     try {
-      const cleanedContent = content
-        .replace(/<think>[\s\S]*?<\/think>/g, "")
-        .replace(/```json\n?/g, "")
-        .replace(/```\n?/g, "")
-        .trim();
-      const parsed = JSON.parse(cleanedContent);
-      // json_object mode wraps arrays — unwrap {data: [...]} or {...} -> first array
+      let raw = content.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+      raw = raw.replace(/```(?:json)?\n?/g, "").replace(/```\n?/g, "").trim();
+      const arrStart = raw.indexOf("[");
+      const objStart = raw.indexOf("{");
+      let candidate = raw;
+      if (arrStart >= 0 && (objStart < 0 || arrStart < objStart)) {
+        candidate = raw.slice(arrStart);
+      } else if (objStart >= 0) {
+        candidate = raw.slice(objStart);
+      }
+      const parsed = JSON.parse(candidate);
       if (Array.isArray(parsed)) {
         result = parsed;
       } else if (Array.isArray(parsed.data)) {

@@ -358,12 +358,11 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
       body: JSON.stringify({
         model: process.env.MINIMAX_MODEL || "MiniMax-M2.5-highspeed",
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: SYSTEM_PROMPT + "\n\nIMPORTANT: Output ONLY a valid JSON array. No prose, no markdown fences, no <think> blocks." },
           { role: "user", content: userPrompt },
         ],
         temperature: 1.1,
         max_tokens: 2000,
-        response_format: { type: "json_object" },
       }),
     });
 
@@ -374,26 +373,39 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
     }
 
     const data = await response.json();
-    const content = data.choices[0]?.message?.content || "{}";
+    const content = data.choices[0]?.message?.content || "[]";
 
     let comments;
     try {
-      const cleanedContent = content
-        .replace(/<think>[\s\S]*?<\/think>/g, "")
-        .replace(/```json\n?/g, "")
-        .replace(/```\n?/g, "")
-        .trim();
-      const parsed = JSON.parse(cleanedContent);
-      // Minimax with json_object returns an object; the schema asks for an array,
-      // so accept either {comments: [...]} or [...] or {data: [...]}.
+      // Strip <think>...</think> reasoning blocks (minimax family)
+      let raw = content.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+      // Strip markdown code fences
+      raw = raw.replace(/```(?:json)?\n?/g, "").replace(/```\n?/g, "").trim();
+      // Try to extract first balanced JSON array from the output
+      const arrStart = raw.indexOf("[");
+      const objStart = raw.indexOf("{");
+      let candidate = raw;
+      if (arrStart >= 0 && (objStart < 0 || arrStart < objStart)) {
+        candidate = raw.slice(arrStart);
+      } else if (objStart >= 0) {
+        candidate = raw.slice(objStart);
+      }
+      const parsed = JSON.parse(candidate);
+      // Normalize: accept array, {comments|data:<arr>}, {<arr>}, or stringified JSON
       if (Array.isArray(parsed)) {
         comments = parsed;
+      } else if (typeof parsed === "string") {
+        try {
+          const inner = JSON.parse(parsed);
+          comments = Array.isArray(inner) ? inner : [inner];
+        } catch {
+          comments = [{ username: "User", personality: "normal", content: parsed, sentiment_impact: 0, delay: 0 }];
+        }
       } else if (Array.isArray(parsed.comments)) {
         comments = parsed.comments;
       } else if (Array.isArray(parsed.data)) {
         comments = parsed.data;
       } else {
-        // last resort: pick first array-valued field
         const arr = Object.values(parsed).find(Array.isArray);
         comments = arr || [];
       }
