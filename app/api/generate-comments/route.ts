@@ -411,29 +411,9 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
           .map((k) => o[k])
           .join("");
 
-      console.log("[EchoChamber] parsed type:", Array.isArray(parsed) ? "array" : typeof parsed, "len:", Array.isArray(parsed) ? parsed.length : "n/a");
       if (Array.isArray(parsed)) {
         // Detect the char-keyed object inside the array wrapper
-        // Inline-detect to log WHY detector might fail
-        let _debugDetected = -1;
-        for (let _i = 0; _i < parsed.length; _i++) {
-          const o = parsed[_i];
-          if (_i === 0) {
-            console.log("[EchoChamber] elem[0] type:", Array.isArray(o) ? "array" : typeof o, "value:", typeof o === "object" && o !== null ? Object.keys(o).slice(0, 3) : String(o).slice(0, 50));
-          }
-          if (o && typeof o === "object" && !Array.isArray(o)) {
-            const keys = Object.keys(o);
-            const numericKeys = keys.filter((k) => /^\d+$/.test(k));
-            const numericRatio = keys.length === 0 ? 0 : numericKeys.length / keys.length;
-            const ok = keys.length >= 5 && numericRatio >= 0.6;
-            if (_i === 0) {
-              console.log("[EchoChamber] debug-detect elem[0]:", { totalKeys: keys.length, numericKeys: numericKeys.length, ratio: numericRatio, threshold: 0.6, ok });
-            }
-            if (ok) { _debugDetected = _i; break; }
-          }
-        }
         const charIndex = parsed.findIndex(looksLikeCharObject);
-        console.log("[EchoChamber] charIndex:", charIndex, "_debugDetected:", _debugDetected);
         if (charIndex >= 0) {
           // Convert char-object entries; keep non-char entries as-is
           comments = parsed.map((c: unknown, i: number) =>
@@ -485,8 +465,8 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
           comments = arr || [];
         }
       }
-    } catch (e) {
-      console.error("[EchoChamber] Failed to parse AI response:", content, "error:", (e as Error).message);
+    } catch {
+      console.error("[EchoChamber] Failed to parse AI response:", content);
       comments = lang === "en" ? [
         {
           username: "RandomUser_" + Math.floor(Math.random() * 1000),
@@ -527,20 +507,44 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
       "普通": "normal",
     };
 
-    const normalizedComments = comments.map((c: { personality: string; [key: string]: unknown }) => ({
+    // Coerce every parsed item into a proper object — minimax sometimes returns
+    // plain strings; spreading a string with `{...str}` produces a character-indexed
+    // object (`{"0":"l","1":"m",...}`), which is what was breaking DELETE responses.
+    const objectComments = comments.map((c: unknown) => {
+      if (c && typeof c === "object" && !Array.isArray(c)) return c as { personality: string; [key: string]: unknown };
+      if (typeof c === "string") {
+        return {
+          username: "User",
+          personality: "normal",
+          content: c,
+          sentiment_impact: 0,
+          delay: 0,
+        };
+      }
+      // any other shape — wrap as content
+      return {
+        username: "User",
+        personality: "normal",
+        content: String(c),
+        sentiment_impact: 0,
+        delay: 0,
+      };
+    });
+
+    const normalizedComments = objectComments.map((c) => ({
       ...c,
-      personality: validPersonalities.includes(c.personality) 
-        ? c.personality 
-        : personalityMap[c.personality?.toLowerCase()] || "normal"
+      personality: validPersonalities.includes(c.personality)
+        ? c.personality
+        : personalityMap[(c.personality || "").toLowerCase()] || "normal",
     }));
 
     // Ensure at least one comment if model returned empty
-    if (!comments || comments.length === 0) {
-      comments = lang === "en" ? [
-        { username: "RandomUser_" + Math.floor(Math.random() * 1000), personality: "normal", content: "interesting", sentiment_impact: 0, delay: 1 },
-      ] : [
-        { username: "路人甲" + Math.floor(Math.random() * 1000), personality: "normal", content: "有意思", sentiment_impact: 0, delay: 1 },
-      ];
+    if (!normalizedComments || normalizedComments.length === 0) {
+      normalizedComments.push(
+        lang === "en"
+          ? { username: "RandomUser_" + Math.floor(Math.random() * 1000), personality: "normal", content: "interesting", sentiment_impact: 0, delay: 1 }
+          : { username: "路人甲" + Math.floor(Math.random() * 1000), personality: "normal", content: "有意思", sentiment_impact: 0, delay: 1 }
+      );
     }
 
     // Generate random votes for poll if poll exists
