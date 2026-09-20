@@ -85,37 +85,54 @@ export async function POST(request: NextRequest) {
         : "为社交媒体平台生成5-8个热门话题。";
     }
 
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
+    const response = await fetch(process.env.MINIMAX_BASE_URL + "/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+        Authorization: `Bearer ${process.env.MINIMAX_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: process.env.MINIMAX_MODEL || "MiniMax-M2.5-highspeed",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
         temperature: 1.0,
         max_tokens: 2000,
+        response_format: { type: "json_object" },
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`DeepSeek API error: ${response.status}`);
+      const errorText = await response.text();
+      console.error("[EchoChamber] Minimax API error:", errorText);
+      throw new Error(`Minimax API error: ${response.status}`);
     }
 
     const data = await response.json();
-    const content = data.choices[0]?.message?.content || "[]";
+    const content = data.choices[0]?.message?.content || "{}";
 
     let result;
     try {
       const cleanedContent = content
+        .replace(/<think>[\s\S]*?<\/think>/g, "")
         .replace(/```json\n?/g, "")
         .replace(/```\n?/g, "")
         .trim();
-      result = JSON.parse(cleanedContent);
+      const parsed = JSON.parse(cleanedContent);
+      // json_object mode wraps arrays — unwrap {data: [...]} or {...} -> first array
+      if (Array.isArray(parsed)) {
+        result = parsed;
+      } else if (Array.isArray(parsed.data)) {
+        result = parsed.data;
+      } else if (Array.isArray(parsed.topics)) {
+        result = parsed.topics;
+      } else if (Array.isArray(parsed.posts)) {
+        result = parsed.posts;
+      } else {
+        const arr = Object.values(parsed).find(Array.isArray);
+        result = arr || [];
+      }
     } catch {
       // Fallback
       if (action === "generate_posts") {
@@ -141,7 +158,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ data: result });
   } catch (error) {
-    console.error("[v0] Topics API error:", error);
+    console.error("[EchoChamber] Topics API error:", error);
     return NextResponse.json(
       { error: "Failed to generate topics" },
       { status: 500 }

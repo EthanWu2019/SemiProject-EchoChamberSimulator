@@ -349,41 +349,56 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
       }
     }
 
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
+    const response = await fetch(process.env.MINIMAX_BASE_URL + "/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+        Authorization: `Bearer ${process.env.MINIMAX_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: process.env.MINIMAX_MODEL || "MiniMax-M2.5-highspeed",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
         temperature: 1.1,
         max_tokens: 2000,
+        response_format: { type: "json_object" },
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("[v0] DeepSeek API error:", errorText);
-      throw new Error(`DeepSeek API error: ${response.status}`);
+      console.error("[EchoChamber] Minimax API error:", errorText);
+      throw new Error(`Minimax API error: ${response.status}`);
     }
 
     const data = await response.json();
-    const content = data.choices[0]?.message?.content || "[]";
+    const content = data.choices[0]?.message?.content || "{}";
 
     let comments;
     try {
       const cleanedContent = content
+        .replace(/<think>[\s\S]*?<\/think>/g, "")
         .replace(/```json\n?/g, "")
         .replace(/```\n?/g, "")
         .trim();
-      comments = JSON.parse(cleanedContent);
+      const parsed = JSON.parse(cleanedContent);
+      // Minimax with json_object returns an object; the schema asks for an array,
+      // so accept either {comments: [...]} or [...] or {data: [...]}.
+      if (Array.isArray(parsed)) {
+        comments = parsed;
+      } else if (Array.isArray(parsed.comments)) {
+        comments = parsed.comments;
+      } else if (Array.isArray(parsed.data)) {
+        comments = parsed.data;
+      } else {
+        // last resort: pick first array-valued field
+        const arr = Object.values(parsed).find(Array.isArray);
+        comments = arr || [];
+      }
     } catch {
-      console.error("[v0] Failed to parse AI response:", content);
+      console.error("[EchoChamber] Failed to parse AI response:", content);
       comments = lang === "en" ? [
         {
           username: "RandomUser_" + Math.floor(Math.random() * 1000),
@@ -431,6 +446,15 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
         : personalityMap[c.personality?.toLowerCase()] || "normal"
     }));
 
+    // Ensure at least one comment if model returned empty
+    if (!comments || comments.length === 0) {
+      comments = lang === "en" ? [
+        { username: "RandomUser_" + Math.floor(Math.random() * 1000), personality: "normal", content: "interesting", sentiment_impact: 0, delay: 1 },
+      ] : [
+        { username: "路人甲" + Math.floor(Math.random() * 1000), personality: "normal", content: "有意思", sentiment_impact: 0, delay: 1 },
+      ];
+    }
+
     // Generate random votes for poll if poll exists
     let pollVotes: number[] = [];
     if (pollOptions && pollOptions.length > 0) {
@@ -445,7 +469,7 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
 
     return NextResponse.json({ comments: normalizedComments, pollVotes });
   } catch (error) {
-    console.error("[v0] API route error:", error);
+    console.error("[EchoChamber] API route error:", error);
     return NextResponse.json(
       { error: "Failed to generate comments" },
       { status: 500 }
