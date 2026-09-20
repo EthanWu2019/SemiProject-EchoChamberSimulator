@@ -392,17 +392,30 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
       }
       const parsed = JSON.parse(candidate);
       // Normalize: accept array, {comments|data:<arr>}, {<arr>}, or stringified JSON.
-      // Detect minimax quirk where it returns a string-as-character-object
-      // (e.g. {"0":"l","1":"m",...}) — fall back to a regex-extracted comment.
-      const isCharObject =
-        parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
-        Object.keys(parsed).length > 1 &&
-        Object.keys(parsed).every((k) => /^\d+$/.test(k));
-      if (isCharObject) {
-        const text = Object.keys(parsed)
+      // minimax quirk: when prompt asks for an array of one short string, the
+      // model emits a character-keyed object — sometimes nested inside an
+      // array wrapper that also has "personality" etc. Detect by checking
+      // whether most keys are numeric digits AND there are ≥5 of them
+      // (short strings produce ~5+ char keys).
+      const looksLikeCharObject = (o: unknown): boolean => {
+        if (!o || typeof o !== "object" || Array.isArray(o)) return false;
+        const keys = Object.keys(o);
+        if (keys.length < 5) return false;
+        const numericCount = keys.filter((k) => /^\d+$/.test(k)).length;
+        return numericCount / keys.length >= 0.6;
+      };
+      const charObjectToText = (o: Record<string, string>): string =>
+        Object.keys(o)
+          .filter((k) => /^\d+$/.test(k))
           .sort((a, b) => Number(a) - Number(b))
-          .map((k) => parsed[k])
+          .map((k) => o[k])
           .join("");
+
+      if (Array.isArray(parsed)) {
+        comments = parsed;
+      } else if (looksLikeCharObject(parsed)) {
+        // Whole response is a char-object — emit one comment from its text.
+        const text = charObjectToText(parsed as Record<string, string>);
         comments = [{
           username: "User",
           personality: "normal",
@@ -410,8 +423,14 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
           sentiment_impact: 0,
           delay: 0,
         }];
-      } else if (Array.isArray(parsed)) {
-        comments = parsed;
+      } else if (Array.isArray(parsed.comments)) {
+        comments = parsed.comments.map((c: unknown) =>
+          looksLikeCharObject(c) ? { username: "User", personality: "normal", content: charObjectToText(c as Record<string, string>), sentiment_impact: 0, delay: 0 } : c
+        );
+      } else if (Array.isArray(parsed.data)) {
+        comments = parsed.data.map((c: unknown) =>
+          looksLikeCharObject(c) ? { username: "User", personality: "normal", content: charObjectToText(c as Record<string, string>), sentiment_impact: 0, delay: 0 } : c
+        );
       } else if (typeof parsed === "string") {
         try {
           const inner = JSON.parse(parsed);
@@ -419,10 +438,6 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
         } catch {
           comments = [{ username: "User", personality: "normal", content: parsed, sentiment_impact: 0, delay: 0 }];
         }
-      } else if (Array.isArray(parsed.comments)) {
-        comments = parsed.comments;
-      } else if (Array.isArray(parsed.data)) {
-        comments = parsed.data;
       } else {
         // last resort: regex-extract a comment block from raw text
         const m = raw.match(/\{\s*"content"\s*:\s*"([^"]+)"/);

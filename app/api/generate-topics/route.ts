@@ -124,8 +124,27 @@ export async function POST(request: NextRequest) {
         candidate = raw.slice(objStart);
       }
       const parsed = JSON.parse(candidate);
+      const looksLikeCharObject = (o: unknown): boolean => {
+        if (!o || typeof o !== "object" || Array.isArray(o)) return false;
+        const keys = Object.keys(o);
+        if (keys.length < 5) return false;
+        const numericCount = keys.filter((k) => /^\d+$/.test(k)).length;
+        return numericCount / keys.length >= 0.6;
+      };
+      const charObjectToText = (o: Record<string, string>): string =>
+        Object.keys(o)
+          .filter((k) => /^\d+$/.test(k))
+          .sort((a, b) => Number(a) - Number(b))
+          .map((k) => o[k])
+          .join("");
+
       if (Array.isArray(parsed)) {
         result = parsed;
+      } else if (looksLikeCharObject(parsed)) {
+        const text = charObjectToText(parsed as Record<string, string>);
+        result = action === "generate_posts"
+          ? [{ username: "User", content: text, likes: 0, reposts: 0, views: 0 }]
+          : [{ tag: text, count: "0", hot: false }];
       } else if (typeof parsed === "string") {
         try {
           const inner = JSON.parse(parsed);
@@ -140,19 +159,8 @@ export async function POST(request: NextRequest) {
       } else if (Array.isArray(parsed.posts)) {
         result = parsed.posts;
       } else {
-        // Detect minimax quirk: character-keyed object ({0:"a",1:"b"...})
-        const isCharObj = parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
-          Object.keys(parsed).length > 1 &&
-          Object.keys(parsed).every((k) => /^\d+$/.test(k));
-        if (isCharObj) {
-          const text = Object.keys(parsed).sort((a, b) => Number(a) - Number(b)).map((k) => parsed[k]).join("");
-          result = action === "generate_posts"
-            ? [{ username: "User", content: text, likes: 0, reposts: 0, views: 0 }]
-            : [{ tag: text, count: "0", hot: false }];
-        } else {
-          const arr = Object.values(parsed).find(Array.isArray);
-          result = arr || [];
-        }
+        const arr = Object.values(parsed).find(Array.isArray);
+        result = arr || [];
       }
     } catch {
       // Fallback
