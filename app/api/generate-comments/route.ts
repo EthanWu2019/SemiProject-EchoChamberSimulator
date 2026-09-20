@@ -414,8 +414,23 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
       console.log("[EchoChamber] parsed type:", Array.isArray(parsed) ? "array" : typeof parsed, "len:", Array.isArray(parsed) ? parsed.length : "n/a");
       if (Array.isArray(parsed)) {
         // Detect the char-keyed object inside the array wrapper
+        // Inline-detect to log WHY detector might fail
+        let _debugDetected = -1;
+        for (let _i = 0; _i < parsed.length; _i++) {
+          const o = parsed[_i];
+          if (o && typeof o === "object" && !Array.isArray(o)) {
+            const keys = Object.keys(o);
+            const numericKeys = keys.filter((k) => /^\d+$/.test(k));
+            const numericRatio = keys.length === 0 ? 0 : numericKeys.length / keys.length;
+            const ok = keys.length >= 5 && numericRatio >= 0.6;
+            if (_i === 0) {
+              console.log("[EchoChamber] debug-detect elem[0]:", { totalKeys: keys.length, numericKeys: numericKeys.length, ratio: numericRatio, threshold: 0.6, ok });
+            }
+            if (ok) { _debugDetected = _i; break; }
+          }
+        }
         const charIndex = parsed.findIndex(looksLikeCharObject);
-        console.log("[EchoChamber] charIndex:", charIndex, "first elem keys:", parsed[0] ? Object.keys(parsed[0]).slice(0, 5) : "n/a", "first elem total keys:", parsed[0] ? Object.keys(parsed[0]).length : "n/a");
+        console.log("[EchoChamber] charIndex:", charIndex, "_debugDetected:", _debugDetected);
         if (charIndex >= 0) {
           // Convert char-object entries; keep non-char entries as-is
           comments = parsed.map((c: unknown, i: number) =>
