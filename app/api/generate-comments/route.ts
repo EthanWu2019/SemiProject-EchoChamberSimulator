@@ -411,9 +411,11 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
           .map((k) => o[k])
           .join("");
 
+      console.log("[EchoChamber] parsed type:", Array.isArray(parsed) ? "array" : typeof parsed, "len:", Array.isArray(parsed) ? parsed.length : "n/a");
       if (Array.isArray(parsed)) {
         // Detect the char-keyed object inside the array wrapper
         const charIndex = parsed.findIndex(looksLikeCharObject);
+        console.log("[EchoChamber] charIndex:", charIndex, "first elem keys:", parsed[0] ? Object.keys(parsed[0]).slice(0, 5) : "n/a");
         if (charIndex >= 0) {
           // Convert char-object entries; keep non-char entries as-is
           comments = parsed.map((c: unknown, i: number) =>
@@ -465,8 +467,8 @@ ${imageUrl ? "- 有些用户应该对图片发表评论" : ""}`;
           comments = arr || [];
         }
       }
-    } catch {
-      console.error("[EchoChamber] Failed to parse AI response:", content);
+    } catch (e) {
+      console.error("[EchoChamber] Failed to parse AI response:", content, "error:", (e as Error).message);
       comments = lang === "en" ? [
         {
           username: "RandomUser_" + Math.floor(Math.random() * 1000),
